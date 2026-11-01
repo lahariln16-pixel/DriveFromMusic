@@ -1174,7 +1174,8 @@ app.post(
 
         try {
             const {
-                url
+                url,
+                fileName: requestedFileName
             } = req.body;
 
             if (!url) {
@@ -1253,8 +1254,12 @@ app.post(
                     url
                 );
 
+            const customName = sanitizeFileName(requestedFileName || "");
+            const baseName = customName
+                ? customName.replace(/\.mp3$/i, "").trim()
+                : title;
             const fileName =
-                `${title}.mp3`;
+                `${baseName}.mp3`;
 
             log(
                 `File name: ${fileName}`
@@ -1859,6 +1864,15 @@ input:focus {
             autocomplete="off"
         >
 
+        <input
+            id="fileName"
+            type="text"
+            placeholder="Custom file name (optional)"
+            autocomplete="off"
+            maxlength="180"
+            style="margin-top: 12px;"
+        >
+
         <button
             class="upload"
             id="downloadButton"
@@ -1904,6 +1918,11 @@ input:focus {
 const urlInput =
     document.getElementById(
         "url"
+    );
+
+const fileNameInput =
+    document.getElementById(
+        "fileName"
     );
 
 const button =
@@ -1977,7 +1996,9 @@ button.addEventListener(
                         body:
                             JSON.stringify({
                                 url:
-                                    url
+                                    url,
+                                fileName:
+                                    fileNameInput.value.trim()
                             })
                     }
                 );
