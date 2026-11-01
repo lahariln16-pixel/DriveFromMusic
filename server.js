@@ -328,21 +328,43 @@ function createGoogleOAuthClient() {
 // ============================================================
 
 async function getDriveClient() {
-    const auth =
-        createGoogleOAuthClient();
+    let auth;
 
-    try {
-        await auth.getAccessToken();
-    } catch (error) {
-        throw new Error(
-            `Google authentication failed: ${error.message}`
+    if (process.env.TOKEN_NEXUS_URL && process.env.TOKEN_NEXUS_CLIENT_KEY) {
+        const baseUrl = process.env.TOKEN_NEXUS_URL.replace(/\\/+$/, "");
+        const response = await fetch(
+            baseUrl + "/api/client/drive-from-music/access-token",
+            {
+                headers: {
+                    Authorization: "Bearer " + process.env.TOKEN_NEXUS_CLIENT_KEY,
+                    Accept: "application/json"
+                },
+                signal: AbortSignal.timeout(10000)
+            }
         );
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || typeof payload.accessToken !== "string") {
+            const reason = typeof payload.error === "string" ? payload.error : "token_nexus_unavailable";
+            throw new Error("Token Nexus could not provide a Google Drive token: " + reason);
+        }
+
+        auth = new google.auth.OAuth2();
+        auth.setCredentials({
+            access_token: payload.accessToken,
+            expiry_date: payload.expiresAt ? Date.parse(payload.expiresAt) : undefined,
+            scope: Array.isArray(payload.scopes) ? payload.scopes.join(" ") : undefined,
+            token_type: "Bearer"
+        });
+    } else {
+        auth = createGoogleOAuthClient();
+        try {
+            await auth.getAccessToken();
+        } catch (error) {
+            throw new Error(`Google authentication failed: ${error.message}`);
+        }
     }
 
-    return google.drive({
-        version: "v3",
-        auth
-    });
+    return google.drive({ version: "v3", auth });
 }
 
 // ============================================================
