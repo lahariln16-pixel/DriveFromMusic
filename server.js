@@ -424,10 +424,57 @@ async function getDriveFolder(drive) {
                 ? error.response.data.error
                 : null;
 
+            let account = null;
+            let actualScopes = drive._dfmDiagnosticScopes || [];
+
+            try {
+                const about = await drive.about.get({
+                    fields: "user(emailAddress,permissionId)"
+                });
+                const email = about.data && about.data.user
+                    ? about.data.user.emailAddress
+                    : null;
+                if (email) {
+                    const parts = email.split("@");
+                    account = {
+                        maskedEmail: (parts[0].slice(0, 1) || "*") +
+                            "***@" + (parts[1] || ""),
+                        emailVerifiedByDrive: true
+                    };
+                }
+            } catch (identityError) {
+                account = {
+                    lookupFailed: true,
+                    status: identityError && identityError.response
+                        ? identityError.response.status
+                        : null
+                };
+            }
+
+            try {
+                const accessToken = drive._dfmAuth &&
+                    drive._dfmAuth.credentials
+                    ? drive._dfmAuth.credentials.access_token
+                    : null;
+                if (accessToken) {
+                    const tokenInfoResponse = await fetch(
+                        "https://oauth2.googleapis.com/tokeninfo?access_token=" +
+                            encodeURIComponent(accessToken),
+                        { signal: AbortSignal.timeout(8000) }
+                    );
+                    if (tokenInfoResponse.ok) {
+                        const tokenInfo = await tokenInfoResponse.json();
+                        actualScopes = String(tokenInfo.scope || "")
+                            .split(" ").filter(Boolean);
+                    }
+                }
+            } catch {}
+
             log("Drive folder diagnostic: " + JSON.stringify({
                 configuredFolderId: DRIVE_FOLDER_ID,
                 requestedScope: "https://www.googleapis.com/auth/drive",
-                grantedScopes: drive._dfmDiagnosticScopes || [],
+                grantedScopes: actualScopes,
+                authenticatedDriveAccount: account,
                 googleStatus: status,
                 googleMessage: googleError && googleError.message
                     ? googleError.message
