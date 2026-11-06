@@ -332,6 +332,7 @@ function createGoogleOAuthClient() {
 
 async function getDriveClient() {
     let auth;
+    let diagnosticScopes = [];
 
     if (process.env.TOKEN_NEXUS_URL && process.env.TOKEN_NEXUS_CLIENT_KEY) {
         const baseUrl = process.env.TOKEN_NEXUS_URL.replace(/\/+$/, "");
@@ -351,15 +352,17 @@ async function getDriveClient() {
             throw new Error("Token Nexus could not provide a Google Drive token: " + reason);
         }
 
+        diagnosticScopes = Array.isArray(payload.scopes) ? payload.scopes : [];
         auth = new google.auth.OAuth2();
         auth.setCredentials({
             access_token: payload.accessToken,
             expiry_date: payload.expiresAt ? Date.parse(payload.expiresAt) : undefined,
-            scope: Array.isArray(payload.scopes) ? payload.scopes.join(" ") : undefined,
+            scope: diagnosticScopes.join(" "),
             token_type: "Bearer"
         });
     } else {
         auth = createGoogleOAuthClient();
+        diagnosticScopes = String(auth.credentials.scope || "").split(" ").filter(Boolean);
         try {
             await auth.getAccessToken();
         } catch (error) {
@@ -367,7 +370,10 @@ async function getDriveClient() {
         }
     }
 
-    return google.drive({ version: "v3", auth });
+    const drive = google.drive({ version: "v3", auth });
+    drive._dfmDiagnosticScopes = diagnosticScopes;
+    drive._dfmAuth = auth;
+    return drive;
 }
 
 // ============================================================
@@ -375,22 +381,71 @@ async function getDriveClient() {
 // ============================================================
 
 async function getDriveFolder(drive) {
-    const response = await drive.files.get({
-        fileId: DRIVE_FOLDER_ID,
-        supportsAllDrives: true,
-        fields: "id,name,mimeType,trashed"
-    });
+    try {
+        const response = await drive.files.get({
+            fileId: DRIVE_FOLDER_ID,
+            supportsAllDrives: true,
+            fields: "id,name,mimeType,trashed,driveId"
+        });
 
-    const folder = response.data;
+        const folder = response.data;
 
-    if (
-        folder.mimeType !== "application/vnd.google-apps.folder" ||
-        folder.trashed
-    ) {
-        throw new Error("Configured Google Drive folder is invalid.");
+        if (
+            folder.mimeType !== "application/vnd.google-apps.folder" ||
+            folder.trashed
+        ) {
+            throw new Error("Configured Google Drive folder is invalid.");
+        }
+
+        return folder;
+    } catch (error) {
+        const status = error && error.response && error.response.status;
+        if (status === 404) {
+            let matches = [];
+            let searchError = null;
+
+            try {
+                const search = await drive.files.list({
+                    q: "name = '" + DRIVE_FOLDER_NAME.replace(/'/g, "\\'") + "' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+                    corpora: "allDrives",
+                    includeItemsFromAllDrives: true,
+                    supportsAllDrives: true,
+                    pageSize: 20,
+                    fields: "files(id,name,driveId,mimeType)"
+                });
+                matches = search.data.files || [];
+            } catch (lookupError) {
+                searchError = lookupError && lookupError.message
+                    ? lookupError.message
+                    : "folder_name_search_failed";
+            }
+
+            const googleError = error.response && error.response.data
+                ? error.response.data.error
+                : null;
+
+            log("Drive folder diagnostic: " + JSON.stringify({
+                configuredFolderId: DRIVE_FOLDER_ID,
+                requestedScope: "https://www.googleapis.com/auth/drive",
+                grantedScopes: drive._dfmDiagnosticScopes || [],
+                googleStatus: status,
+                googleMessage: googleError && googleError.message
+                    ? googleError.message
+                    : error.message,
+                googleReasons: googleError && Array.isArray(googleError.errors)
+                    ? googleError.errors.map(item => item.reason)
+                    : [],
+                sameNameFolderMatches: matches.map(item => ({
+                    id: item.id,
+                    name: item.name,
+                    driveId: item.driveId || null
+                })),
+                nameSearchError: searchError
+            }));
+        }
+
+        throw error;
     }
-
-    return folder;
 }
 
 // ============================================================
