@@ -28,6 +28,9 @@ const LOCAL_TOKEN_FILE = path.join(
 const DRIVE_FOLDER_NAME =
     process.env.GOOGLE_DRIVE_FOLDER_NAME || "DriveFromMusic";
 
+const DRIVE_FOLDER_ID =
+    process.env.GOOGLE_DRIVE_FOLDER_ID || "1lCplFe3QucFKChEX8hXTz9lcfZM3pfkA";
+
 const GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/drive.file"
 ];
@@ -372,38 +375,21 @@ async function getDriveClient() {
 // ============================================================
 
 async function getDriveFolder(drive) {
-    const escapedName =
-        DRIVE_FOLDER_NAME.replace(
-            /'/g,
-            "\\'"
-        );
+    const response = await drive.files.get({
+        fileId: DRIVE_FOLDER_ID,
+        fields: "id,name,mimeType,trashed"
+    });
 
-    const response =
-        await drive.files.list({
-            q:
-                `'root' in parents ` +
-                `and name = '${escapedName}' ` +
-                `and mimeType = 'application/vnd.google-apps.folder' ` +
-                `and trashed = false`,
-
-            fields:
-                "files(id,name,parents)",
-
-            spaces: "drive",
-
-            pageSize: 10
-        });
+    const folder = response.data;
 
     if (
-        response.data.files &&
-        response.data.files.length > 0
+        folder.mimeType !== "application/vnd.google-apps.folder" ||
+        folder.trashed
     ) {
-        return response.data.files[0];
+        throw new Error("Configured Google Drive folder is invalid.");
     }
 
-    throw new Error(
-        `Google Drive folder "${DRIVE_FOLDER_NAME}" was not found in your Drive.`
-    );
+    return folder;
 }
 
 // ============================================================
