@@ -32,7 +32,7 @@ const DRIVE_FOLDER_ID =
     process.env.GOOGLE_DRIVE_FOLDER_ID || "1lCplFe3QucFKChEX8hXTz9lcfZM3pfkA";
 
 const GOOGLE_SCOPES = [
-    "https://www.googleapis.com/auth/drive.file"
+    "https://www.googleapis.com/auth/drive"
 ];
 
 // Password used by the website.
@@ -377,6 +377,7 @@ async function getDriveClient() {
 async function getDriveFolder(drive) {
     const response = await drive.files.get({
         fileId: DRIVE_FOLDER_ID,
+        supportsAllDrives: true,
         fields: "id,name,mimeType,trashed"
     });
 
@@ -1300,6 +1301,7 @@ app.post(
 
             const uploaded =
                 await drive.files.create({
+                    supportsAllDrives: true,
                     requestBody: {
                         name:
                             fileName,
